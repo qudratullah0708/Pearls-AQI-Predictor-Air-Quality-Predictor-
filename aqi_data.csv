@@ -1,0 +1,5 @@
+timestamp,city,aqi,dominant_pollutant,pm25,latitude,longitude,dew,humidity,pressure,temp,wind_speed,hour,day,month,year,aqi_change,aqi_roll3
+2025-10-05 11:00:00,"Islamabad US Embassy, Pakistan",89,pm25,89,33.7235,73.11822,16.2,67.6,954.6,22.5,5.1,11,5,10,2025,,
+2025-10-05 18:00:00,"Islamabad US Embassy, Pakistan",99,pm25,99,33.7235,73.11822,12.9,44.3,950.8,26.0,4.1,18,5,10,2025,10.0,
+2025-10-07 13:00:00,"Islamabad US Embassy, Pakistan",102,pm25,102,33.7235,73.11822,14.1,83.0,955.8,17.0,2.0,13,7,10,2025,3.0,96.66666666666667
+2025-10-08 08:00:00,"Islamabad US Embassy, Pakistan",119,pm25,119,33.7235,73.11822,12.2,64.7,957.4,19.0,2.0,8,8,10,2025,17.0,106.66666666666667
