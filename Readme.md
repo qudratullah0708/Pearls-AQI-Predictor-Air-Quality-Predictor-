@@ -15,5 +15,5 @@ uv pip install -r requirements.txt
 
 #run
 
-data_api.py
+python feature_pipeline.py
 

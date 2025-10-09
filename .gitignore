@@ -1,0 +1,37 @@
+# Environment variables (NEVER commit these!)
+.env
+.env.local
+
+# GCP credentials (NEVER commit these!)
+*.json
+!requirements.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter Notebooks (if you create any)
+.ipynb_checkpoints/
+
+# Data backups (optional - uncomment if you don't want to commit data)
+# aqi_data.csv
+# *.csv
