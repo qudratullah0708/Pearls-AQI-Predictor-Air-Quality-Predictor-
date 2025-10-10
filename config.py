@@ -70,7 +70,8 @@ BIGQUERY_SCHEMA = [
     {"name": "month", "type": "INTEGER", "mode": "NULLABLE"},
     {"name": "year", "type": "INTEGER", "mode": "NULLABLE"},
     {"name": "aqi_change", "type": "FLOAT", "mode": "NULLABLE"},
-    {"name": "aqi_roll3", "type": "FLOAT", "mode": "NULLABLE"}
+    {"name": "aqi_roll3", "type": "FLOAT", "mode": "NULLABLE"},
+    {"name": "day_of_week", "type": "INTEGER", "mode": "NULLABLE"}
 ]
 
 def validate_config():

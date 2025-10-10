@@ -98,6 +98,7 @@ def engineer_features(df):
         df["day"] = df["timestamp"].dt.day
         df["month"] = df["timestamp"].dt.month
         df["year"] = df["timestamp"].dt.year
+        df["day_of_week"] = df["timestamp"].dt.dayofweek  # 0=Monday, 6=Sunday
         
         # Create entity_id for Feature Store (ISO 8601 format)
         df["entity_id"] = df["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S")
@@ -137,6 +138,22 @@ def save_to_bigquery(df):
         # Get table reference
         table_path = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET_ID}.{BIGQUERY_TABLE_ID}"
         table = bq_client.get_table(table_path)
+        
+        # Check for existing timestamp to prevent duplicates
+        timestamp_str = df['timestamp'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')
+        check_query = f"""
+        SELECT COUNT(*) as count 
+        FROM `{table_path}` 
+        WHERE timestamp = '{timestamp_str}'
+        """
+        try:
+            result = list(bq_client.query(check_query).result())
+            if result[0].count > 0:
+                print(f"⚠️  Data for timestamp {timestamp_str} already exists - skipping insert")
+                return True  # Not an error, just skip
+        except Exception as e:
+            print(f"⚠️  Could not check for duplicates: {e}")
+            # Continue anyway - might be table doesn't exist yet
         
         # Prepare data for BigQuery
         # Convert DataFrame to list of dictionaries with proper timestamp formatting
