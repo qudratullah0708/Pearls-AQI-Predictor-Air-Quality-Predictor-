@@ -1,0 +1,14 @@
+requests
+pandas
+colorama
+python-dotenv
+
+google-cloud-aiplatform
+google-cloud-bigquery
+db-dtypes
+pandas-gbq
+
+# ML Libraries for training pipeline
+scikit-learn
+xgboost
+joblib
