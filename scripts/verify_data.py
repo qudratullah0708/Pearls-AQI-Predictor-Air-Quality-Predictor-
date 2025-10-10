@@ -53,7 +53,7 @@ def verify_bigquery_data():
         FROM `{GCP_PROJECT_ID}.{BIGQUERY_DATASET_ID}.{BIGQUERY_TABLE_ID}`
         WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
         ORDER BY timestamp DESC
-        LIMIT 3
+        LIMIT 5
         """
         
         print("📊 Querying BigQuery table...")
