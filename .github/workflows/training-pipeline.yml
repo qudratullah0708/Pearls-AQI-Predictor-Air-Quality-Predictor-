@@ -1,5 +1,10 @@
 name: Daily AQI Model Training
 
+# Explicit permissions to enable manual workflow runs
+permissions:
+  contents: read
+  id-token: write
+
 on:
   schedule:
     # Run daily at 2 AM UTC (after collecting 24 hours of data)
@@ -7,7 +12,7 @@ on:
   workflow_dispatch:  # Allow manual trigger
   push:
     branches: [ main ]
-      paths:
+    paths:
       - 'training_pipeline.py'
       - 'config.py'
 
