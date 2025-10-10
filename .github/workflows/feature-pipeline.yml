@@ -7,9 +7,9 @@ on:
   workflow_dispatch:  # Allow manual trigger
   push:
     branches: [ main ]
-    paths:
-      - 'Pearls-AQI-Predictor-Air-Quality-Predictor-/feature_pipeline.py'
-      - 'Pearls-AQI-Predictor-Air-Quality-Predictor-/config.py'
+      paths:
+      - 'feature_pipeline.py'
+      - 'config.py'
 
 jobs:
   collect-aqi-data:
@@ -28,18 +28,16 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('Pearls-AQI-Predictor-Air-Quality-Predictor-/requirements.txt') }}
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
           
     - name: Install dependencies
-      working-directory: Pearls-AQI-Predictor-Air-Quality-Predictor-
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
     - name: Create service account key file
-      working-directory: Pearls-AQI-Predictor-Air-Quality-Predictor-
       run: |
         echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > aqi-service-account.json
         echo "GCP_SERVICE_ACCOUNT_KEY_PATH=aqi-service-account.json" >> .env
@@ -50,7 +48,6 @@ jobs:
         echo "BIGQUERY_TABLE_ID=aqi_features" >> .env
         
     - name: Run AQI Feature Pipeline
-      working-directory: Pearls-AQI-Predictor-Air-Quality-Predictor-
       run: |
         echo "🚀 Starting automated AQI data collection..."
         echo "⏰ Timestamp: $(date)"
@@ -58,7 +55,6 @@ jobs:
         
     - name: Clean up service account key
       if: always()
-      working-directory: Pearls-AQI-Predictor-Air-Quality-Predictor-
       run: |
         rm -f aqi-service-account.json
         rm -f .env
@@ -68,5 +64,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: feature-pipeline-logs-${{ github.run_number }}
-        path: Pearls-AQI-Predictor-Air-Quality-Predictor-/
+        path: ./
         retention-days: 7
