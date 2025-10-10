@@ -65,7 +65,7 @@ jobs:
         
     - name: Upload logs on failure
       if: failure()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: feature-pipeline-logs-${{ github.run_number }}
         path: Pearls-AQI-Predictor-Air-Quality-Predictor-/
