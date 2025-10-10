@@ -1,0 +1,85 @@
+# AQI Predictor - Git Ignore File
+
+# Environment variables (contains secrets)
+.env
+.env.local
+.env.*.local
+
+# Service account keys (contains secrets)
+**/aqi-service-account.json
+**/*service-account*.json
+**/gcp-credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Model artifacts (will be stored in Vertex AI Model Registry)
+models/
+*.pkl
+*.joblib
+*.h5
+
+# Data files (use BigQuery instead)
+*.csv
+*.json
+data/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# GitHub Actions artifacts
+.github/artifacts/
