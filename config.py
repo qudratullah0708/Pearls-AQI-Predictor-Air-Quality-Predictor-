@@ -29,6 +29,29 @@ BIGQUERY_LOCATION = os.getenv("GCP_REGION", "us-central1")  # Use same region as
 FEATURE_GROUP_ID = os.getenv("FEATURE_GROUP_ID", "aqi_readings")
 FEATURE_GROUP_LOCATION = os.getenv("GCP_REGION", "us-central1")  # Use same region as GCP
 
+# Model Training Configuration
+MODEL_REGISTRY_NAME = "aqi-predictor"
+MODEL_OUTPUT_DIR = "models"
+EVALUATION_OUTPUT_DIR = "outputs"
+PREDICTION_HORIZONS = [24, 48, 72]  # hours ahead
+TRAIN_TEST_SPLIT_RATIO = 0.7
+
+# Model Hyperparameters (conservative for small datasets)
+MODEL_CONFIGS = {
+    "linear_regression": {},
+    "random_forest": {
+        "n_estimators": 50,
+        "max_depth": 5,
+        "random_state": 42
+    },
+    "xgboost": {
+        "max_depth": 3,
+        "n_estimators": 100,
+        "learning_rate": 0.1,
+        "random_state": 42
+    }
+}
+
 # Feature Schema Definition
 FEATURE_COLUMNS = [
     "timestamp",

@@ -12,3 +12,5 @@ pandas-gbq
 scikit-learn
 xgboost
 joblib
+matplotlib
+seaborn
