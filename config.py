@@ -36,6 +36,10 @@ EVALUATION_OUTPUT_DIR = "outputs"
 PREDICTION_HORIZONS = [24, 48, 72]  # hours ahead
 TRAIN_TEST_SPLIT_RATIO = 0.7
 
+# Model Registry Configuration
+MODEL_ARTIFACTS_BUCKET = f"{GCP_PROJECT_ID}-aqi-model-artifacts"
+GCS_MODEL_PATH = "models"
+
 # Model Hyperparameters (conservative for small datasets)
 MODEL_CONFIGS = {
     "linear_regression": {},

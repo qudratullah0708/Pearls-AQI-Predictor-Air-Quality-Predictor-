@@ -14,6 +14,7 @@ from pathlib import Path
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from google.cloud import aiplatform
+from google.cloud import storage
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -31,6 +32,8 @@ from config import (
     PREDICTION_HORIZONS,
     TRAIN_TEST_SPLIT_RATIO,
     MODEL_CONFIGS,
+    MODEL_ARTIFACTS_BUCKET,
+    GCS_MODEL_PATH,
     validate_config
 )
 
@@ -55,6 +58,177 @@ def initialize_ai_platform():
     except Exception as e:
         print(f"❌ Error initializing Vertex AI: {e}")
         return False
+
+def check_data_freshness(df):
+    """Check if we have enough new data to warrant retraining"""
+    print("🔍 Checking data freshness...")
+    
+    try:
+        latest_timestamp = df['timestamp'].max()
+        earliest_timestamp = df['timestamp'].min()
+        
+        hours_of_data = (latest_timestamp - earliest_timestamp).total_seconds() / 3600
+        
+        print(f"📊 Data freshness check:")
+        print(f"   Latest: {latest_timestamp}")
+        print(f"   Earliest: {earliest_timestamp}")
+        print(f"   Hours of data: {hours_of_data:.1f}")
+        
+        # Require at least 72 hours (3 days) for meaningful training
+        if hours_of_data < 72:
+            print(f"⚠️  Insufficient data for training (need 72+ hours)")
+            print(f"   💡 Current data span: {hours_of_data:.1f} hours")
+            return False
+        
+        print(f"✅ Sufficient data for training: {hours_of_data:.1f} hours")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error checking data freshness: {e}")
+        return False
+
+def create_gcs_bucket():
+    """Create GCS bucket for model artifacts if it doesn't exist"""
+    print("🪣 Setting up GCS bucket for model artifacts...")
+    
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            GCP_SERVICE_ACCOUNT_KEY_PATH
+        )
+        
+        storage_client = storage.Client(
+            project=GCP_PROJECT_ID,
+            credentials=credentials
+        )
+        
+        bucket_name = MODEL_ARTIFACTS_BUCKET
+        
+        try:
+            bucket = storage_client.bucket(bucket_name)
+            bucket.reload()
+            print(f"✅ GCS bucket exists: gs://{bucket_name}")
+        except Exception:
+            # Bucket doesn't exist, create it
+            bucket = storage_client.bucket(bucket_name)
+            bucket.location = GCP_REGION
+            bucket = storage_client.create_bucket(bucket)
+            print(f"✅ Created GCS bucket: gs://{bucket_name}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error setting up GCS bucket: {e}")
+        return False
+
+def upload_model_to_gcs(local_model_path, gcs_model_path):
+    """Upload model file to GCS"""
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            GCP_SERVICE_ACCOUNT_KEY_PATH
+        )
+        
+        storage_client = storage.Client(
+            project=GCP_PROJECT_ID,
+            credentials=credentials
+        )
+        
+        bucket = storage_client.bucket(MODEL_ARTIFACTS_BUCKET)
+        blob = bucket.blob(gcs_model_path)
+        
+        blob.upload_from_filename(local_model_path)
+        
+        gcs_uri = f"gs://{MODEL_ARTIFACTS_BUCKET}/{gcs_model_path}"
+        print(f"✅ Model uploaded to GCS: {gcs_uri}")
+        
+        return gcs_uri
+        
+    except Exception as e:
+        print(f"❌ Error uploading model to GCS: {e}")
+        return None
+
+def upload_to_model_registry(saved_models, results_df):
+    """Upload best models to Vertex AI Model Registry"""
+    print("📤 Uploading models to Vertex AI Model Registry...")
+    
+    try:
+        uploaded_models = []
+        
+        for saved_model in saved_models:
+            horizon = saved_model['horizon']
+            model_name = saved_model['model_name']
+            model_path = saved_model['filename']
+            performance = saved_model['performance']
+            
+            print(f"\n🎯 Uploading {horizon} {model_name} model...")
+            
+            # Create GCS path for this model
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            gcs_model_path = f"{GCS_MODEL_PATH}/{horizon}/{model_name}_v{timestamp}.pkl"
+            
+            # Upload model to GCS
+            gcs_uri = upload_model_to_gcs(model_path, gcs_model_path)
+            if gcs_uri is None:
+                print(f"❌ Failed to upload {horizon} {model_name} to GCS")
+                continue
+            
+            # Create display name
+            display_name = f"aqi-predictor-{horizon}-{model_name}"
+            
+            # Prepare model metadata
+            labels = {
+                'horizon': horizon,
+                'model_type': model_name,
+                'framework': 'sklearn' if model_name != 'xgboost' else 'xgboost',
+                'project': 'aqi-forecasting'
+            }
+            
+            # Choose appropriate container image
+            if model_name == 'xgboost':
+                container_image = "us-docker.pkg.dev/vertex-ai/prediction/xgboost-cpu.1-7:latest"
+            else:
+                container_image = "us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-0:latest"
+            
+            # Upload to Model Registry
+            model = aiplatform.Model.upload(
+                display_name=display_name,
+                artifact_uri=gcs_uri,
+                serving_container_image_uri=container_image,
+                labels=labels,
+                description=f"AQI prediction model for {horizon} ahead forecasting. MAE: {performance['mae']:.2f}, R²: {performance['r2']:.3f}"
+            )
+            
+            # Add custom metadata
+            model.update(
+                metadata={
+                    'mae': float(performance['mae']),
+                    'rmse': float(performance['rmse']),
+                    'r2': float(performance['r2']),
+                    'mape': float(performance['mape']),
+                    'n_test_samples': int(performance['n_test_samples']),
+                    'training_timestamp': performance['timestamp'],
+                    'model_version': timestamp
+                }
+            )
+            
+            uploaded_models.append({
+                'horizon': horizon,
+                'model_name': model_name,
+                'model_id': model.resource_name,
+                'gcs_uri': gcs_uri
+            })
+            
+            print(f"✅ {horizon} {model_name} uploaded successfully")
+            print(f"   📋 Model ID: {model.resource_name}")
+            print(f"   🏷️  Labels: {labels}")
+        
+        print(f"\n🎉 Model Registry upload completed!")
+        print(f"📊 Total models uploaded: {len(uploaded_models)}")
+        
+        return uploaded_models
+        
+    except Exception as e:
+        print(f"❌ Error uploading to Model Registry: {e}")
+        return None
 
 def load_data_from_bigquery():
     """Load training data from BigQuery table"""
@@ -567,6 +741,16 @@ def main():
         print("❌ Failed to load data from BigQuery")
         return
     
+    # Step 1.5: Check data freshness
+    if not check_data_freshness(df):
+        print("⚠️  Insufficient data for training - exiting")
+        print("💡 Continue collecting data hourly via CI/CD pipeline")
+        return
+    
+    # Step 1.6: Setup GCS bucket for model artifacts
+    if not create_gcs_bucket():
+        print("❌ Failed to setup GCS bucket - continuing without Model Registry upload")
+    
     # Step 2: Create target variables
     df = create_target_variables(df)
     if df is None:
@@ -604,10 +788,13 @@ def main():
             print("❌ Failed to save models")
             return
         
-        # Step 8: Create feature importance plots
+        # Step 8: Upload to Model Registry
+        uploaded_models = upload_to_model_registry(saved_models, results_df)
+        
+        # Step 9: Create feature importance plots
         create_feature_importance_plots(models, feature_columns)
         
-        # Step 9: Save evaluation results
+        # Step 10: Save evaluation results
         save_evaluation_results(results_df)
         
         # Final summary
@@ -616,8 +803,10 @@ def main():
         print("📊 Summary:")
         print(f"   📈 Models trained: {len(results_df)} total")
         print(f"   🏆 Best models saved: {len(saved_models)}")
+        print(f"   📤 Models uploaded to registry: {len(uploaded_models) if uploaded_models else 0}")
         print(f"   📁 Models directory: {MODEL_OUTPUT_DIR}/")
         print(f"   📊 Results directory: {EVALUATION_OUTPUT_DIR}/")
+        print(f"   🪣 GCS bucket: gs://{MODEL_ARTIFACTS_BUCKET}")
         print("\n✅ Ready for production deployment!")
     else:
         print("\n⚠️  Training Pipeline Completed with Limited Results")

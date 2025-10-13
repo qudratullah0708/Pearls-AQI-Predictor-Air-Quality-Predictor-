@@ -5,6 +5,7 @@ python-dotenv
 
 google-cloud-aiplatform
 google-cloud-bigquery
+google-cloud-storage
 db-dtypes
 pandas-gbq
 
