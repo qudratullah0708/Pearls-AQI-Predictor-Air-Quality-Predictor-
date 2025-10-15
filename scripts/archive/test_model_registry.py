@@ -4,9 +4,14 @@ Quick test to verify GCS bucket and Model Registry upload works
 """
 
 import os
+import sys
 import joblib
 import numpy as np
 from datetime import datetime
+
+# Add parent directory to path to import config
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+
 from google.cloud import storage
 from google.oauth2 import service_account
 from google.cloud import aiplatform
@@ -81,20 +86,22 @@ def test_model_registry_upload():
         # Save model locally
         joblib.dump(dummy_model, model_filename)
         
-        # Upload to GCS first
+        # Upload to GCS first - create directory structure
         storage_client = storage.Client(
             project=GCP_PROJECT_ID,
             credentials=credentials
         )
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        gcs_model_path = f"{GCS_MODEL_PATH}/test/dummy_model_v{timestamp}.pkl"
+        gcs_model_dir = f"{GCS_MODEL_PATH}/test/dummy_model_v{timestamp}"
+        gcs_model_path = f"{gcs_model_dir}/model.pkl"  # Standard filename
         
         bucket = storage_client.bucket(MODEL_ARTIFACTS_BUCKET)
         blob = bucket.blob(gcs_model_path)
         blob.upload_from_filename(model_filename)
         
-        gcs_uri = f"gs://{MODEL_ARTIFACTS_BUCKET}/{gcs_model_path}"
+        # Point to directory, not file
+        gcs_uri = f"gs://{MODEL_ARTIFACTS_BUCKET}/{gcs_model_dir}/"
         
         # Upload to Model Registry
         display_name = f"test-aqi-model-{timestamp}"
@@ -114,6 +121,7 @@ def test_model_registry_upload():
         # Clean up
         os.remove(model_filename)
         blob.delete()
+        print(f"   🗑️  Cleaned up test files")
         
         return True
         

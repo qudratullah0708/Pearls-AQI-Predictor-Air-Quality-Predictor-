@@ -31,28 +31,37 @@ Goal: Turn raw API data into features stored in BigQuery with auto-sync to Verte
 
 🎯 CURRENT STATUS: Phase 1 is production-ready and tested
 
-🧠 Phase 2: Training Pipeline (Daily) 🚧 NEXT UP
+🧠 Phase 2: Training Pipeline (Daily) ✅ COMPLETED
 
 Goal: Retrain your model automatically every day using updated features from BigQuery/Feature Store.
 
-📋 PLANNED STEPS:
+✅ IMPLEMENTED STEPS:
 
-Write train_pipeline.py:
-- Load dataset from BigQuery table (or Feature Store for optimized ML reads)
-- Split into train/test based on time (temporal split)
-- Train model(s): RandomForest, RidgeRegression, XGBoost
-- Evaluate using RMSE, MAE, R²
-- Save the best model → Vertex AI Model Registry
-- Include model versioning and performance tracking
+✅ training_pipeline.py - Complete implementation:
+- Loads dataset from BigQuery table with proper time-based filtering
+- Creates multi-horizon targets (24h, 48h, 72h ahead predictions)
+- Trains multiple models: Linear Regression, Random Forest, XGBoost
+- Evaluates using RMSE, MAE, R², MAPE metrics
+- Saves best models → Vertex AI Model Registry with proper directory structure
+- Includes model versioning, metadata tracking, and performance history
 
-🎯 IMPLEMENTATION NOTES:
-- Use Feature Store for optimized feature retrieval
-- Implement proper time-based train/test splits
-- Add model performance monitoring
-- Include feature importance analysis
+✅ KEY FEATURES IMPLEMENTED:
+- ✅ Proper GCS directory structure for Model Registry compatibility
+- ✅ Built-in Vertex AI containers (sklearn-cpu, xgboost-cpu)
+- ✅ Temporal train/test splits maintaining time order
+- ✅ Feature importance analysis and visualization
+- ✅ Model performance tracking and comparison
+- ✅ Automated model upload to Vertex AI Model Registry
+- ✅ Model metadata and versioning system
+- ✅ Performance monitoring and evaluation metrics
 
-✅ PREREQUISITES COMPLETED:
-- ✅ Feature data is flowing hourly into BigQuery
+🎯 CURRENT STATUS: Phase 2 is production-ready and tested
+
+🔧 RECENT FIXES (Model Registry Integration):
+- ✅ Fixed GCS directory structure (models now upload as directories, not single files)
+- ✅ Resolved Vertex AI Model Registry compatibility issues
+- ✅ Simplified architecture (removed custom predictor directory)
+- ✅ Built-in containers now handle model serving automatically
 - ✅ Feature Store is auto-syncing
 - ✅ Data schema is stable and well-defined
 

@@ -120,8 +120,8 @@ def create_gcs_bucket():
         print(f"❌ Error setting up GCS bucket: {e}")
         return False
 
-def upload_model_to_gcs(local_model_path, gcs_model_path):
-    """Upload model file to GCS"""
+def upload_model_to_gcs(local_model_path, gcs_model_dir):
+    """Upload model file to GCS in directory structure"""
     try:
         credentials = service_account.Credentials.from_service_account_file(
             GCP_SERVICE_ACCOUNT_KEY_PATH
@@ -133,11 +133,14 @@ def upload_model_to_gcs(local_model_path, gcs_model_path):
         )
         
         bucket = storage_client.bucket(MODEL_ARTIFACTS_BUCKET)
-        blob = bucket.blob(gcs_model_path)
         
+        # Upload model file with standard name 'model.pkl'
+        gcs_model_path = f"{gcs_model_dir}/model.pkl"
+        blob = bucket.blob(gcs_model_path)
         blob.upload_from_filename(local_model_path)
         
-        gcs_uri = f"gs://{MODEL_ARTIFACTS_BUCKET}/{gcs_model_path}"
+        # Return directory URI (not file URI)
+        gcs_uri = f"gs://{MODEL_ARTIFACTS_BUCKET}/{gcs_model_dir}/"
         print(f"✅ Model uploaded to GCS: {gcs_uri}")
         
         return gcs_uri
@@ -161,12 +164,12 @@ def upload_to_model_registry(saved_models, results_df):
             
             print(f"\n🎯 Uploading {horizon} {model_name} model...")
             
-            # Create GCS path for this model
+            # Create GCS directory for this model
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            gcs_model_path = f"{GCS_MODEL_PATH}/{horizon}/{model_name}_v{timestamp}.pkl"
+            gcs_model_dir = f"{GCS_MODEL_PATH}/{horizon}/{model_name}_v{timestamp}"
             
-            # Upload model to GCS
-            gcs_uri = upload_model_to_gcs(model_path, gcs_model_path)
+            # Upload model to GCS (returns directory URI)
+            gcs_uri = upload_model_to_gcs(model_path, gcs_model_dir)
             if gcs_uri is None:
                 print(f"❌ Failed to upload {horizon} {model_name} to GCS")
                 continue
@@ -189,6 +192,10 @@ def upload_to_model_registry(saved_models, results_df):
                 container_image = "us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-0:latest"
             
             # Upload to Model Registry
+            print(f"   📤 Uploading to Model Registry...")
+            print(f"      📁 Artifact URI: {gcs_uri}")
+            print(f"      🐳 Container: {container_image}")
+            
             model = aiplatform.Model.upload(
                 display_name=display_name,
                 artifact_uri=gcs_uri,
