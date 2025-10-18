@@ -6,17 +6,11 @@ Fetches data from AQICN API and stores in BigQuery (syncs to Feature Store)
 import requests
 import pandas as pd
 import os
-from google.cloud import bigquery
-from google.oauth2 import service_account
+from feast_utils import append_features_to_offline_store, materialize_to_online_store
 from config import (
     AQICN_TOKEN,
     CITY,
     AQICN_URL,
-    GCP_PROJECT_ID,
-    GCP_REGION,
-    GCP_SERVICE_ACCOUNT_KEY_PATH,
-    BIGQUERY_DATASET_ID,
-    BIGQUERY_TABLE_ID,
     validate_config
 )
 
@@ -118,72 +112,96 @@ def engineer_features(df):
         print(f"❌ Error in feature engineering: {e}")
         return None
 
-def save_to_bigquery(df):
-    """Save features to BigQuery table (auto-syncs to Feature Store)"""
-    print("💾 Saving to BigQuery...")
-    
+
+def save_to_feast(df):
+    """Save feature to Feast feature store"""
+    print("Saving to Feast Feature Store...")
+
     try:
-        # Load service account credentials
-        credentials = service_account.Credentials.from_service_account_file(
-            GCP_SERVICE_ACCOUNT_KEY_PATH
-        )
-        
-        # Initialize BigQuery client
-        bq_client = bigquery.Client(
-            project=GCP_PROJECT_ID, 
-            location=GCP_REGION, 
-            credentials=credentials
-        )
-        
-        # Get table reference
-        table_path = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET_ID}.{BIGQUERY_TABLE_ID}"
-        table = bq_client.get_table(table_path)
-        
-        # Check for existing timestamp to prevent duplicates
-        timestamp_str = df['timestamp'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')
-        check_query = f"""
-        SELECT COUNT(*) as count 
-        FROM `{table_path}` 
-        WHERE timestamp = '{timestamp_str}'
-        """
-        try:
-            result = list(bq_client.query(check_query).result())
-            if result[0].count > 0:
-                print(f"⚠️  Data for timestamp {timestamp_str} already exists - skipping insert")
-                return True  # Not an error, just skip
-        except Exception as e:
-            print(f"⚠️  Could not check for duplicates: {e}")
-            # Continue anyway - might be table doesn't exist yet
-        
-        # Prepare data for BigQuery
-        # Convert DataFrame to list of dictionaries with proper timestamp formatting
-        df_for_bigquery = df.copy()
-        
-        # Convert Timestamp columns to ISO format strings for BigQuery
-        timestamp_columns = ['timestamp', 'feature_timestamp']
-        for col in timestamp_columns:
-            if col in df_for_bigquery.columns:
-                df_for_bigquery[col] = df_for_bigquery[col].dt.strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Convert DataFrame to list of dictionaries
-        rows_to_insert = df_for_bigquery.to_dict('records')
-        
-        # Insert data
-        errors = bq_client.insert_rows_json(table, rows_to_insert)
-        
-        if errors == []:
-            print("✅ Data saved to BigQuery successfully")
-            print(f"   📊 Table: {table_path}")
-            print(f"   📋 Rows inserted: {len(rows_to_insert)}")
-            print("   🔄 Auto-syncing to Feature Store...")
-            return True
-        else:
-            print(f"❌ Errors inserting data: {errors}")
+
+        success = append_features_to_offline_store(df)
+        if not success:
+            print("❌ Failed to append features to offline store")
             return False
-            
+        
+        success = materialize_to_online_store()
+        if not success:
+            print("❌ Failed to materialize features to online store")
+            return False
+        # materialize to online store
+        print("✅ Features materialized to online store")
+        return True
+    
     except Exception as e:
-        print(f"❌ Error saving to BigQuery: {e}")
+        print(f"❌ Error saving to Feast Feature Store: {e}")
         return False
+
+# def save_to_bigquery(df):
+#     """Save features to BigQuery table (auto-syncs to Feature Store)"""
+#     print("💾 Saving to BigQuery...")
+    
+#     try:
+#         # Load service account credentials
+#         credentials = service_account.Credentials.from_service_account_file(
+#             GCP_SERVICE_ACCOUNT_KEY_PATH
+#         )
+        
+#         # Initialize BigQuery client
+#         bq_client = bigquery.Client(
+#             project=GCP_PROJECT_ID, 
+#             location=GCP_REGION, 
+#             credentials=credentials
+#         )
+        
+#         # Get table reference
+#         table_path = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET_ID}.{BIGQUERY_TABLE_ID}"
+#         table = bq_client.get_table(table_path)
+        
+#         # Check for existing timestamp to prevent duplicates
+#         timestamp_str = df['timestamp'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')
+#         check_query = f"""
+#         SELECT COUNT(*) as count 
+#         FROM `{table_path}` 
+#         WHERE timestamp = '{timestamp_str}'
+#         """
+#         try:
+#             result = list(bq_client.query(check_query).result())
+#             if result[0].count > 0:
+#                 print(f"⚠️  Data for timestamp {timestamp_str} already exists - skipping insert")
+#                 return True  # Not an error, just skip
+#         except Exception as e:
+#             print(f"⚠️  Could not check for duplicates: {e}")
+#             # Continue anyway - might be table doesn't exist yet
+        
+#         # Prepare data for BigQuery
+#         # Convert DataFrame to list of dictionaries with proper timestamp formatting
+#         df_for_bigquery = df.copy()
+        
+#         # Convert Timestamp columns to ISO format strings for BigQuery
+#         timestamp_columns = ['timestamp', 'feature_timestamp']
+#         for col in timestamp_columns:
+#             if col in df_for_bigquery.columns:
+#                 df_for_bigquery[col] = df_for_bigquery[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+        
+#         # Convert DataFrame to list of dictionaries
+#         rows_to_insert = df_for_bigquery.to_dict('records')
+        
+#         # Insert data
+#         errors = bq_client.insert_rows_json(table, rows_to_insert)
+        
+#         if errors == []:
+#             print("✅ Data saved to BigQuery successfully")
+#             print(f"   📊 Table: {table_path}")
+#             print(f"   📋 Rows inserted: {len(rows_to_insert)}")
+#             print("   🔄 Auto-syncing to Feature Store...")
+#             return True
+#         else:
+#             print(f"❌ Errors inserting data: {errors}")
+#             return False
+            
+#     except Exception as e:
+#         print(f"❌ Error saving to BigQuery: {e}")
+#         return False
 
 def main():
     """Main pipeline function"""
@@ -216,14 +234,13 @@ def main():
         print("❌ Failed to engineer features")
         return
     
-    # Step 4: Save to BigQuery (auto-syncs to Feature Store)
-    success = save_to_bigquery(df)
+    # Step 4: Save to Feast Feature Store
+    success = save_to_feast(df)
     
     if success:
         print("\n🎉 Pipeline completed successfully!")
         print("✅ Data is now available in:")
-        print("   📊 BigQuery table")
-        print("   🔧 Feature Store (auto-synced)")
+        print("   📊 Feast Feature Store")
     else:
         print("\n❌ Pipeline failed!")
 

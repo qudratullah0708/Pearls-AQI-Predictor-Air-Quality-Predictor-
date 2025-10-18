@@ -3,11 +3,11 @@ pandas
 colorama
 python-dotenv
 
-google-cloud-aiplatform
-google-cloud-bigquery
-google-cloud-storage
-db-dtypes
-pandas-gbq
+# google-cloud-aiplatform
+# google-cloud-bigquery
+# google-cloud-storage
+# db-dtypes
+# pandas-gbq
 
 # ML Libraries for training pipeline
 scikit-learn
@@ -15,3 +15,7 @@ xgboost
 joblib
 matplotlib
 seaborn
+
+
+feast
+pyarrow

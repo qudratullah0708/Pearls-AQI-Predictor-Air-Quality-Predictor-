@@ -6,11 +6,11 @@ on:
     - cron: '0 2 * * *'
   
   workflow_dispatch:  # Allow manual trigger
-    inputs:
-      reason:
-        description: 'Reason for manual training'
-        required: false
-        default: 'Manual trigger'
+  push:
+    branches: [ feast-migration ]
+    paths:
+      - 'training_pipeline.py'
+      - 'config.py'
 
 permissions:
   contents: read
@@ -32,19 +32,29 @@ jobs:
         run: |
           pip install -r requirements.txt
       
-      - name: Create GCP credentials file
-        run: |
-          echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > aqi-service-account.json
-      
-      - name: Create .env file
+      - name: Setup environment
         run: |
           echo "AQICN_TOKEN=${{ secrets.AQICN_TOKEN }}" >> .env
-          echo "GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}" >> .env
-          echo "GCP_REGION=us-central1" >> .env
-          echo "GCP_SERVICE_ACCOUNT_KEY_PATH=aqi-service-account.json" >> .env
+          echo "FEAST_REPO_PATH=feature_repo" >> .env
+          echo "MODEL_OUTPUT_DIR=models" >> .env
+          echo "PREDICTION_HORIZONS=24,48,72" >> .env
+      
+      - name: Initialize Feast Feature Store
+        run: |
+          cd feature_repo
+          echo "🔧 Applying Feast configuration..."
+          feast apply
+          
+          echo "📊 Materializing features up to: $(date -u +"%Y-%m-%dT%H:%M:%S")"
+          feast materialize-incremental $(date -u +"%Y-%m-%dT%H:%M:%S")
+          
+          echo "✅ Feast initialization complete"
+          cd ..
       
       - name: Run training pipeline
         run: |
+          echo "🚀 Starting automated model training..."
+          echo "⏰ Timestamp: $(date)"
           python training_pipeline.py
       
       - name: Upload model artifacts
@@ -58,26 +68,8 @@ jobs:
             model_performance_history.csv
           retention-days: 30
       
-      - name: Upload model performance summary
-        if: success()
-        run: |
-          echo "## 📊 Training Pipeline Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -f "model_performance_history.csv" ]; then
-            echo "### Latest Model Performance" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            tail -n +2 model_performance_history.csv | tail -n 6 >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "- Model files: \`models/\` directory" >> $GITHUB_STEP_SUMMARY
-          echo "- Evaluation results: \`outputs/\` directory" >> $GITHUB_STEP_SUMMARY
-          echo "- Performance history: \`model_performance_history.csv\`" >> $GITHUB_STEP_SUMMARY
-      
-      - name: Cleanup credentials
+      - name: Clean up environment
         if: always()
         run: |
-          rm -f aqi-service-account.json
           rm -f .env
+        
