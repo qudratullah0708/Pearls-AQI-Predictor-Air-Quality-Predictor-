@@ -1,12 +1,13 @@
 from feast import Entity, FeatureView, Field, FileSource
 from feast.types import Float32, Int32, String
+from feast.value_type import ValueType
 from datetime import timedelta
 
 # Step 1: Define the Entity (represents Islamabad monitoring station)
 aqi_location = Entity(
     name="aqi_location",
     join_keys=["location_id"],
-    value_type=String,
+    value_type=ValueType.STRING,
     description="AQI monitoring location (Islamabad US Embassy)"
 )
 
