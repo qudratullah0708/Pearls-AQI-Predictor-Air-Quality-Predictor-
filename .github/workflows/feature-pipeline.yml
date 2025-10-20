@@ -19,6 +19,8 @@ on:
 jobs:
   collect-aqi-data:
     runs-on: ubuntu-latest
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     
     steps:
     - name: Checkout repository
