@@ -7,7 +7,7 @@ on:
   
   workflow_dispatch:  # Allow manual trigger
   push:
-    branches: [ feast-migration ]
+    branches: [ main ]
     paths:
       - 'training_pipeline.py'
       - 'config.py'
