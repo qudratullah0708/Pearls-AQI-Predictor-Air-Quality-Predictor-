@@ -47,8 +47,15 @@ jobs:
           echo "🔧 Applying Feast configuration..."
           feast apply
           
-          echo "📊 Materializing features up to: $(date -u +"%Y-%m-%dT%H:%M:%S")"
-          feast materialize-incremental $(date -u +"%Y-%m-%dT%H:%M:%S")
+          # Check if data file exists before materializing
+          if [ -f "data/aqi_features.parquet" ]; then
+            echo "📊 Data file found, materializing features up to: $(date -u +"%Y-%m-%dT%H:%M:%S")"
+            feast materialize-incremental $(date -u +"%Y-%m-%dT%H:%M:%S")
+            echo "✅ Features materialized to online store"
+          else
+            echo "⚠️  No data file found - skipping materialization"
+            echo "💡 Run the feature pipeline first to collect data"
+          fi
           
           echo "✅ Feast initialization complete"
           cd ..

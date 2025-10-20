@@ -115,21 +115,17 @@ def engineer_features(df):
 
 def save_to_feast(df):
     """Save feature to Feast feature store"""
-    print("Saving to Feast Feature Store...")
+    print("💾 Saving to Feast Feature Store...")
 
     try:
-
+        # Only append to offline store - materialization will be handled by workflow
         success = append_features_to_offline_store(df)
         if not success:
             print("❌ Failed to append features to offline store")
             return False
         
-        success = materialize_to_online_store()
-        if not success:
-            print("❌ Failed to materialize features to online store")
-            return False
-        # materialize to online store
-        print("✅ Features materialized to online store")
+        print("✅ Features saved to offline store")
+        print("💡 Materialization to online store will be handled by workflow")
         return True
     
     except Exception as e:
