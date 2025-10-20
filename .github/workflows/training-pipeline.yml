@@ -5,7 +5,7 @@ on:
     # Run daily at 2 AM UTC (after collecting 24 hours of new data)
     - cron: '0 2 * * *'
   
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:  # Allow manual trigger (only from main branch)
   push:
     branches: [ main ]
     paths:
@@ -18,6 +18,8 @@ permissions:
 jobs:
   train-models:
     runs-on: ubuntu-latest
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout code
