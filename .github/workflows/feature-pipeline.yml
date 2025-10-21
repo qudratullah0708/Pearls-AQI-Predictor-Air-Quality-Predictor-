@@ -78,6 +78,16 @@ jobs:
         fi
         cd ..
     
+    - name: Upload Feast offline artifacts
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: feast-offline-store-${{ github.run_number }}
+        path: |
+          feature_repo/data/aqi_features.parquet
+          feature_repo/data/registry.db
+        retention-days: 30  # Keep for 30 days (good balance)
+    
     - name: Upload logs on failure
       if: failure()
       uses: actions/upload-artifact@v4

@@ -66,7 +66,9 @@ AQI/
 │   └── docs/
 │       ├── migration_report.md      # Comprehensive migration report
 │       ├── approach.md              # Technical approach
-│       └── plan.md                  # Project phases
+│       ├── plan.md                  # Project phases
+│       ├── data-synchronization-journey.md  # Complete problem-solving journey
+│       └── presentation-summary.md  # Executive summary for presentations
 │
 ├── 🔧 Scripts & Utilities
 │   └── scripts/
