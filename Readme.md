@@ -43,6 +43,7 @@ AQI/
 ├── 📊 Core Pipeline
 │   ├── feature_pipeline.py          # Hourly data collection & feature engineering
 │   ├── training_pipeline.py         # Model training with Feast
+│   ├── sync_feast_data.py           # GitHub Actions sync with materialization
 │   ├── config.py                    # Centralized configuration
 │   └── feast_utils.py               # Feast helper functions
 │
@@ -72,13 +73,20 @@ AQI/
 │
 ├── 🔧 Scripts & Utilities
 │   └── scripts/
+│       ├── convert_csv_to_parquet.py # CSV to Feast conversion (with merge)
+│       ├── setup_feature_store.py   # Feast initialization
 │       ├── verify_data.py           # Data validation
-│       └── test_feast.py            # Feast testing script
+│       ├── test_feast.py            # Feast testing script
+│       └── archive/                 # Archived migration scripts
 │
-└── 📈 Models & Outputs
-    ├── models/                      # Trained models (.pkl files)
-    ├── outputs/                     # Evaluation results & plots
-    └── model_performance_history.csv # Performance tracking
+├── 📈 Models & Outputs
+│   ├── models/                      # Trained models (.pkl files)
+│   ├── outputs/                     # Evaluation results & plots
+│   └── model_performance_history.csv # Performance tracking
+│
+└── 🗄️ Archive
+    ├── data/                        # Original CSV exports
+    └── aqi-service-account.json    # Legacy GCP credentials
 ```
 
 ## 🚀 **Quick Start**
@@ -103,8 +111,8 @@ echo "AQICN_TOKEN=your_token_here" > .env
 
 ### 2. Initialize Feast Feature Store
 ```bash
-# Convert historical data to Feast format
-python convert_csv_to_parquet.py
+# Convert historical data to Feast format (with merge capability)
+python scripts/convert_csv_to_parquet.py
 
 # Initialize Feast repository
 cd feature_repo
@@ -113,19 +121,28 @@ feast materialize 2025-10-09 2025-10-18
 cd ..
 ```
 
-### 3. Run Feature Pipeline
+### 3. Sync Data from GitHub Actions (Optional)
+```bash
+# Sync latest data from GitHub Actions
+python sync_feast_data.py --daily
+
+# Or sync specific run
+python sync_feast_data.py --latest
+```
+
+### 4. Run Feature Pipeline
 ```bash
 python feature_pipeline.py
 ```
 
-### 4. Train Models
+### 5. Train Models
 ```bash
 python training_pipeline.py
 ```
 
-### 5. Test Feature Store
+### 6. Test Feature Store
 ```bash
-python test_feast.py
+python scripts/test_feast.py
 ```
 
 ## 🧠 **Learning Journey**
@@ -165,6 +182,30 @@ Current model performance across prediction horizons (after Feast migration):
 - **Time features** (hour, day_of_week) provide strong predictive power
 - **Weather variables** (dew, pressure, humidity) enhance accuracy
 - **Performance improved** after migration to Feast feature store
+
+## 🔄 **Data Synchronization**
+
+The project includes a sophisticated sync system for keeping local data up-to-date:
+
+### Sync Strategies
+- **Daily Sync**: `python sync_feast_data.py --daily` (recommended)
+- **Weekly Sync**: `python sync_feast_data.py --weekly` 
+- **Latest Sync**: `python sync_feast_data.py --latest`
+- **Specific Run**: `python sync_feast_data.py [run_number]`
+
+### Sync Process
+1. **Download**: Fetches latest artifacts from GitHub Actions
+2. **Merge**: Intelligently merges new data with existing parquet file
+3. **Deduplicate**: Removes duplicate timestamps (keeps newer data)
+4. **Materialize**: Updates online store for fast serving
+5. **Verify**: Validates data integrity and freshness
+
+### Key Features
+- ✅ **No Data Loss**: Always appends, never overwrites
+- ✅ **Smart Merging**: Handles duplicate timestamps gracefully
+- ✅ **Auto-Materialization**: Updates online store after sync
+- ✅ **Data Freshness**: Shows how recent your data is
+- ✅ **Error Handling**: Continues even if materialization fails
 
 ## 🔧 **Configuration**
 

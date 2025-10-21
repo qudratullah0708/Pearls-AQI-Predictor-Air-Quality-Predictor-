@@ -16,13 +16,21 @@ import shutil
 import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
+from feast_utils import materialize_to_online_store
 
 def get_workflow_runs(days_back=1):
     """Get workflow runs from the last N days"""
     try:
+        # Use full path to gh.exe on Windows
+        import platform
+        if platform.system() == "Windows":
+            gh_cmd = r"C:\Program Files\GitHub CLI\gh.exe"
+        else:
+            gh_cmd = "gh"
+            
         result = subprocess.run([
-            "gh", "run", "list", "--workflow=feature-pipeline.yml", 
-            f"--limit=100", "--json", "number,status,createdAt"
+            gh_cmd, "run", "list", "--workflow=feature-pipeline.yml", 
+            f"--limit=100", "--json", "number,status,createdAt,databaseId"
         ], capture_output=True, text=True, check=True)
         
         import json
@@ -30,7 +38,9 @@ def get_workflow_runs(days_back=1):
         
         # Filter by date if specified
         if days_back:
-            cutoff_date = datetime.now() - timedelta(days=days_back)
+            # Create timezone-aware cutoff_date in UTC to match GitHub API response
+            from datetime import timezone
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
             filtered_runs = []
             for run in runs:
                 run_date = datetime.fromisoformat(run["createdAt"].replace("Z", "+00:00"))
@@ -62,7 +72,7 @@ def download_artifact(run_number=None, days_back=None):
                 print(f"❌ No completed runs found in the last {days_back} days")
                 return False
             
-            run_number = completed_runs[0]["number"]
+            run_number = completed_runs[0]["databaseId"]  # Use databaseId instead of number
             print(f"✅ Found latest run from last {days_back} days: {run_number}")
             
         elif run_number is None:
@@ -72,7 +82,7 @@ def download_artifact(run_number=None, days_back=None):
                 print("❌ No workflow runs found")
                 return False
                 
-            run_number = runs[0]["number"]
+            run_number = runs[0]["databaseId"]  # Use databaseId instead of number
             status = runs[0]["status"]
             
             if status != "completed":
@@ -82,11 +92,34 @@ def download_artifact(run_number=None, days_back=None):
             print(f"✅ Found latest run: {run_number}")
         
         # Download the artifact
-        artifact_name = f"feast-offline-store-{run_number}"
+        # The artifact name uses the run number, but we need the run ID to download
+        # Get the run number from the run data
+        run_data = None
+        if days_back:
+            runs = get_workflow_runs(days_back)
+            completed_runs = [r for r in runs if r["status"] == "completed"]
+            run_data = completed_runs[0]
+        else:
+            runs = get_workflow_runs(1)
+            run_data = runs[0]
+            
+        artifact_name = f"feast-offline-store-{run_data['number']}"
         print(f"📥 Downloading artifact: {artifact_name}")
         
+        # Use full path to gh.exe on Windows
+        import platform
+        if platform.system() == "Windows":
+            gh_cmd = r"C:\Program Files\GitHub CLI\gh.exe"
+        else:
+            gh_cmd = "gh"
+        
+        # Clean up temp directory before downloading
+        temp_dir = Path("temp_artifacts")
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        
         subprocess.run([
-            "gh", "run", "download", str(run_number), 
+            gh_cmd, "run", "download", str(run_number), 
             "-n", artifact_name, "-D", "temp_artifacts"
         ], check=True)
         
@@ -102,44 +135,60 @@ def download_artifact(run_number=None, days_back=None):
         return False
 
 def extract_and_sync():
-    """Extract artifact and sync to local Feast store"""
-    print("📦 Extracting and syncing data...")
+    """Sync downloaded files to local Feast store"""
+    print("📦 Syncing data...")
     
     try:
-        # Find the downloaded zip file
+        # Check if temp directory exists
         temp_dir = Path("temp_artifacts")
         if not temp_dir.exists():
             print("❌ No temp_artifacts directory found")
             return False
-            
-        zip_files = list(temp_dir.glob("*.zip"))
-        if not zip_files:
-            print("❌ No zip file found in temp_artifacts")
-            return False
-            
-        zip_file = zip_files[0]
-        print(f"📂 Found zip file: {zip_file}")
         
-        # Extract the zip
-        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-            zip_ref.extractall(temp_dir)
-        
-        # Copy files to local Feast store
+        # GitHub CLI extracts files directly, so we can copy them immediately
         feast_data_dir = Path("feature_repo/data")
         feast_data_dir.mkdir(parents=True, exist_ok=True)
         
-        # Copy parquet file
-        parquet_src = temp_dir / "feature_repo" / "data" / "aqi_features.parquet"
+        # Copy parquet file (directly from temp directory)
+        parquet_src = temp_dir / "aqi_features.parquet"
         parquet_dst = feast_data_dir / "aqi_features.parquet"
         
         if parquet_src.exists():
-            shutil.copy2(parquet_src, parquet_dst)
-            print(f"✅ Synced: {parquet_dst}")
+            # Check if local parquet file already exists
+            if parquet_dst.exists():
+                print(f"Existing parquet file found. Merging with new data...")
+                
+                # Load both dataframes
+                import pandas as pd
+                existing_df = pd.read_parquet(parquet_dst)
+                new_df = pd.read_parquet(parquet_src)
+                
+                print(f"   Existing records: {len(existing_df)}")
+                print(f"   New records: {len(new_df)}")
+                print(f"   Existing date range: {existing_df['timestamp'].min()} to {existing_df['timestamp'].max()}")
+                print(f"   New date range: {new_df['timestamp'].min()} to {new_df['timestamp'].max()}")
+                
+                # Merge dataframes, removing duplicates by timestamp (keep newer data)
+                combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+                combined_df = combined_df.drop_duplicates(subset=['timestamp'], keep='last')
+                combined_df = combined_df.sort_values('timestamp').reset_index(drop=True)
+                
+                print(f"   Merge complete:")
+                print(f"      Total records after merge: {len(combined_df)}")
+                print(f"      Records added: {len(combined_df) - len(existing_df)}")
+                
+                # Save merged data
+                combined_df.to_parquet(parquet_dst, index=False)
+                print(f"Synced (merged): {parquet_dst}")
+            else:
+                # No existing file, just copy
+                shutil.copy2(parquet_src, parquet_dst)
+                print(f"Synced (new): {parquet_dst}")
         else:
-            print("⚠️  No parquet file found in artifact")
+            print("No parquet file found in artifact")
         
-        # Copy registry file
-        registry_src = temp_dir / "feature_repo" / "data" / "registry.db"
+        # Copy registry file (directly from temp directory)
+        registry_src = temp_dir / "registry.db"
         registry_dst = feast_data_dir / "registry.db"
         
         if registry_src.exists():
@@ -155,7 +204,7 @@ def extract_and_sync():
         return True
         
     except Exception as e:
-        print(f"❌ Error extracting/syncing: {e}")
+        print(f"❌ Error syncing: {e}")
         return False
 
 def verify_sync():
@@ -178,7 +227,9 @@ def verify_sync():
         
         # Calculate data freshness
         latest_time = pd.to_datetime(df['timestamp'].max())
-        now = pd.Timestamp.now()
+        # Make now timezone-aware to match latest_time
+        from datetime import timezone
+        now = pd.Timestamp.now(timezone.utc)
         hours_old = (now - latest_time).total_seconds() / 3600
         
         print(f"   ⏰ Data freshness: {hours_old:.1f} hours old")
@@ -243,8 +294,14 @@ def main():
     print("=" * 50)
     
     # Check if gh CLI is available
+    import platform
+    if platform.system() == "Windows":
+        gh_cmd = r"C:\Program Files\GitHub CLI\gh.exe"
+    else:
+        gh_cmd = "gh"
+        
     try:
-        subprocess.run(["gh", "--version"], capture_output=True, check=True)
+        subprocess.run([gh_cmd, "--version"], capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("❌ GitHub CLI (gh) not found!")
         print("📥 Install it from: https://cli.github.com/")
@@ -278,8 +335,14 @@ def main():
     if not verify_sync():
         return
     
-    print("\n🎉 Sync completed successfully!")
-    print("✅ Your local Feast data is now up to date with GitHub Actions")
+    # Materialize features after successful sync
+    print("\n🔄 Materializing features to online store...")
+    if not materialize_to_online_store():
+        print("⚠️  Sync completed but materialization failed")
+        return
+    
+    print("\n🎉 Sync and materialization completed successfully!")
+    print("✅ Your local Feast data is now up to date and materialized")
     
     # Show next steps
     print("\n💡 Next steps:")

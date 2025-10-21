@@ -2,6 +2,7 @@ requests
 pandas
 colorama
 python-dotenv
+pyarrow
 
 # google-cloud-aiplatform
 # google-cloud-bigquery
