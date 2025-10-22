@@ -207,6 +207,92 @@ def extract_and_sync():
         print(f"❌ Error syncing: {e}")
         return False
 
+def extract_and_sync_from_dir(temp_dir: Path) -> bool:
+    """Sync files from a specified temp directory to local Feast store.
+    Reuses the same merge logic as extract_and_sync(), but parameterized by source dir.
+    """
+    print("📦 Syncing data from", temp_dir)
+    try:
+        if not temp_dir.exists():
+            print(f"❌ No directory found: {temp_dir}")
+            return False
+
+        feast_data_dir = Path("feature_repo/data")
+        feast_data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Parquet
+        parquet_src = temp_dir / "aqi_features.parquet"
+        parquet_dst = feast_data_dir / "aqi_features.parquet"
+
+        if parquet_src.exists():
+            import pandas as pd
+            if parquet_dst.exists():
+                print("Existing parquet file found. Merging with new data...")
+                existing_df = pd.read_parquet(parquet_dst)
+                new_df = pd.read_parquet(parquet_src)
+                print(f"   Existing records: {len(existing_df)}")
+                print(f"   New records: {len(new_df)}")
+                print(f"   Existing date range: {existing_df['timestamp'].min()} to {existing_df['timestamp'].max()}")
+                print(f"   New date range: {new_df['timestamp'].min()} to {new_df['timestamp'].max()}")
+
+                combined_df = (
+                    pd.concat([existing_df, new_df], ignore_index=True)
+                    .drop_duplicates(subset=["timestamp"], keep="last")
+                    .sort_values("timestamp")
+                    .reset_index(drop=True)
+                )
+                print("   Merge complete:")
+                print(f"      Total records after merge: {len(combined_df)}")
+                print(f"      Records added: {len(combined_df) - len(existing_df)}")
+                combined_df.to_parquet(parquet_dst, index=False)
+                print(f"Synced (merged): {parquet_dst}")
+            else:
+                shutil.copy2(parquet_src, parquet_dst)
+                print(f"Synced (new): {parquet_dst}")
+        else:
+            print("No parquet file found in artifact directory")
+
+        # Registry: copy last one (optional)
+        registry_src = temp_dir / "registry.db"
+        registry_dst = feast_data_dir / "registry.db"
+        if registry_src.exists():
+            shutil.copy2(registry_src, registry_dst)
+            print(f"✅ Synced: {registry_dst}")
+
+        return True
+    except Exception as e:
+        print(f"❌ Error syncing from {temp_dir}: {e}")
+        return False
+
+def process_run(run: dict) -> bool:
+    """Download and merge artifacts for a single workflow run.
+    Expects a dict with keys: databaseId (run id), number (run number), createdAt, status.
+    """
+    try:
+        import platform
+        gh_cmd = r"C:\\Program Files\\GitHub CLI\\gh.exe" if platform.system() == "Windows" else "gh"
+        run_id = run["databaseId"]
+        run_number = run["number"]
+
+        artifact_name = f"feast-offline-store-{run_number}"
+        tmp_dir = Path(f"temp_artifacts_{run_id}")
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"📥 Downloading artifact for run {run_number} (id={run_id}): {artifact_name}")
+        subprocess.run([gh_cmd, "run", "download", str(run_id), "-n", artifact_name, "-D", str(tmp_dir)], check=True)
+
+        ok = extract_and_sync_from_dir(tmp_dir)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return ok
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error downloading artifact for run {run.get('number')}: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Error processing run {run.get('number')}: {e}")
+        return False
+
 def verify_sync():
     """Verify the sync worked by checking data"""
     print("🔍 Verifying sync...")
@@ -323,13 +409,39 @@ def main():
     elif run_number:
         print(f"🎯 Syncing specific run: {run_number}")
     
-    # Download artifact
-    if not download_artifact(run_number, days_back):
-        return
-    
-    # Extract and sync
-    if not extract_and_sync():
-        return
+    # If a time window is requested, iterate through ALL completed runs in that window
+    if days_back:
+        runs = get_workflow_runs(days_back)
+        if not runs:
+            print(f"❌ No workflow runs found in the last {days_back} days")
+            return
+
+        # Only completed runs
+        completed_runs = [r for r in runs if r.get("status") == "completed"]
+        if not completed_runs:
+            print(f"❌ No completed runs found in the last {days_back} days")
+            return
+
+        # Sort oldest → newest by createdAt
+        from datetime import timezone
+        completed_runs.sort(key=lambda r: datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00")).astimezone(timezone.utc))
+
+        print(f"📦 Processing {len(completed_runs)} completed runs from last {days_back} days (oldest → newest)...")
+        processed = 0
+        for r in completed_runs:
+            print(f"— Processing run {r['number']} created at {r['createdAt']}")
+            if process_run(r):
+                processed += 1
+            else:
+                print(f"⚠️  Skipped run {r['number']} due to error")
+
+        print(f"✅ Processed {processed}/{len(completed_runs)} runs")
+    else:
+        # Single-run paths: latest or explicit run
+        if not download_artifact(run_number, days_back):
+            return
+        if not extract_and_sync():
+            return
     
     # Verify
     if not verify_sync():
