@@ -1,84 +1,85 @@
-# name: Training Pipeline - Daily Model Retraining
+name: Training Pipeline - Daily Model Retraining
 
-# on:
-#   schedule:
-#     # Run daily at 2 AM UTC (after collecting 24 hours of new data)
-#     - cron: '0 2 * * *'
+on:
+  schedule:
+    # Run daily at 2 AM UTC (after collecting 24 hours of new data)
+    - cron: '0 0 * * 0'
+
   
-#   workflow_dispatch:  # Allow manual trigger (only from main branch)
-#   push:
-#     branches: [ main ]
-#     paths:
-#       - 'training_pipeline.py'
-#       - 'config.py'
+  workflow_dispatch:  # Allow manual trigger (only from main branch)
+  push:
+    branches: [ main ]
+    paths:
+      - 'training_pipeline.py'
+      - 'config.py'
 
-# permissions:
-#   contents: read
+permissions:
+  contents: read
 
-# jobs:
-#   train-models:
-#     runs-on: ubuntu-latest
-#     # Only run on main branch
-#     if: github.ref == 'refs/heads/main'
+jobs:
+  train-models:
+    runs-on: ubuntu-latest
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       
-#       - name: Set up Python
-#         uses: actions/setup-python@v4
-#         with:
-#           python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
       
-#       - name: Install dependencies
-#         run: |
-#           pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
       
-#       - name: Setup environment
-#         run: |
-#           echo "AQICN_TOKEN=${{ secrets.AQICN_TOKEN }}" >> .env
-#           echo "FEAST_REPO_PATH=feature_repo" >> .env
-#           echo "MODEL_OUTPUT_DIR=models" >> .env
-#           echo "PREDICTION_HORIZONS=24,48,72" >> .env
+      - name: Setup environment
+        run: |
+          echo "AQICN_TOKEN=${{ secrets.AQICN_TOKEN }}" >> .env
+          echo "FEAST_REPO_PATH=feature_repo" >> .env
+          echo "MODEL_OUTPUT_DIR=models" >> .env
+          echo "PREDICTION_HORIZONS=24,48,72" >> .env
       
-#       - name: Initialize Feast Feature Store
-#         run: |
-#           cd feature_repo
-#           echo "🔧 Applying Feast configuration..."
-#           feast apply
+      - name: Initialize Feast Feature Store
+        run: |
+          cd feature_repo
+          echo "🔧 Applying Feast configuration..."
+          feast apply
           
-#           # Check if data file exists before materializing
-#           if [ -f "data/aqi_features.parquet" ]; then
-#             echo "📊 Data file found, materializing features up to: $(date -u +"%Y-%m-%dT%H:%M:%S")"
-#             feast materialize-incremental $(date -u +"%Y-%m-%dT%H:%M:%S")
-#             echo "✅ Features materialized to online store"
-#           else
-#             echo "⚠️  No data file found - skipping materialization"
-#             echo "💡 Run the feature pipeline first to collect data"
-#           fi
+          # Check if data file exists before materializing
+          if [ -f "data/aqi_features.parquet" ]; then
+            echo "📊 Data file found, materializing features up to: $(date -u +"%Y-%m-%dT%H:%M:%S")"
+            feast materialize-incremental $(date -u +"%Y-%m-%dT%H:%M:%S")
+            echo "✅ Features materialized to online store"
+          else
+            echo "⚠️  No data file found - skipping materialization"
+            echo "💡 Run the feature pipeline first to collect data"
+          fi
           
-#           echo "✅ Feast initialization complete"
-#           cd ..
+          echo "✅ Feast initialization complete"
+          cd ..
       
-#       - name: Run training pipeline
-#         run: |
-#           echo "🚀 Starting automated model training..."
-#           echo "⏰ Timestamp: $(date)"
-#           python training_pipeline.py
+      - name: Run training pipeline
+        run: |
+          echo "🚀 Starting automated model training..."
+          echo "⏰ Timestamp: $(date)"
+          python training_pipeline.py
       
-#       - name: Upload model artifacts
-#         if: success()
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: trained-models-${{ github.run_number }}
-#           path: |
-#             models/
-#             outputs/
-#             model_performance_history.csv
-#           retention-days: 30
+      - name: Upload model artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-models-${{ github.run_number }}
+          path: |
+            models/
+            outputs/
+            model_performance_history.csv
+          retention-days: 30
       
-#       - name: Clean up environment
-#         if: always()
-#         run: |
-#           rm -f .env
+      - name: Clean up environment
+        if: always()
+        run: |
+          rm -f .env
         
