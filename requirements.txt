@@ -16,6 +16,9 @@ xgboost
 joblib
 matplotlib
 seaborn
+fastapi
+uvicorn
+
 
 
 feast

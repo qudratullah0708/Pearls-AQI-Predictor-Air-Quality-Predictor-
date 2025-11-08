@@ -24,6 +24,9 @@ from config import (
     EVALUATION_OUTPUT_DIR,
     TRAIN_TEST_SPLIT_RATIO,
     MODEL_CONFIGS,
+    DEPLOYMENT_METADATA_FILE,
+    MODEL_VERSION_FORMAT,
+    PERFORMANCE_HISTORY_FILE,
     validate_config
 )
     
@@ -387,16 +390,89 @@ def evaluate_models(models, scalers, X_test_dict, test_targets, feature_columns)
         print(f"❌ Error in model evaluation: {e}")
         return None
 
+def should_deploy_model(horizon, model_name, new_rmse):
+    """
+    Decide whether to deploy a new model based on performance comparison.
+    
+    Args:
+        horizon: Prediction horizon (24h, 48h, 72h)
+        model_name: Model type (xgboost, random_forest, linear_regression)
+        new_rmse: RMSE of the newly trained model
+    
+    Returns:
+        bool: True if should deploy, False otherwise
+    
+    Logic:
+        - If no previous model exists, always deploy (first model)
+        - If new RMSE < previous best RMSE, deploy (improvement)
+        - Otherwise, don't deploy (degradation)
+    """
+    try:
+        import pandas as pd
+        
+        # Check if performance history exists
+        if not os.path.exists(PERFORMANCE_HISTORY_FILE):
+            print(f"✅ First model for {horizon} {model_name} - deploying automatically")
+            return True
+        
+        # Load performance history
+        history_df = pd.read_csv(PERFORMANCE_HISTORY_FILE)
+        
+        # Filter for this specific model (same horizon + model type)
+        model_history = history_df[
+            (history_df['horizon'] == horizon) & 
+            (history_df['model'] == model_name)
+        ].sort_values('timestamp', ascending=False)
+        
+        # If no previous models, deploy
+        if len(model_history) == 0:
+            print(f"✅ First {horizon} {model_name} model - deploying automatically")
+            return True
+        
+        # Get previous best RMSE (most recent)
+        previous_rmse = model_history.iloc[0]['rmse']
+        
+        # Calculate improvement percentage
+        improvement_pct = ((previous_rmse - new_rmse) / previous_rmse) * 100
+        
+        # Decide based on performance
+        if new_rmse < previous_rmse:
+            print(f"✅ MODEL IMPROVED for {horizon} {model_name}")
+            print(f"   Previous RMSE: {previous_rmse:.3f}")
+            print(f"   New RMSE: {new_rmse:.3f}")
+            print(f"   Improvement: {improvement_pct:.2f}%")
+            print(f"   → DEPLOYING to production")
+            return True
+        else:
+            print(f"⚠️  MODEL DEGRADED for {horizon} {model_name}")
+            print(f"   Previous RMSE: {previous_rmse:.3f}")
+            print(f"   New RMSE: {new_rmse:.3f}")
+            print(f"   Degradation: {-improvement_pct:.2f}%")
+            print(f"   → NOT deploying - keeping previous model active")
+            return False
+            
+    except Exception as e:
+        print(f"⚠️  Error checking deployment criteria: {e}")
+        print(f"   Defaulting to: DEPLOY (safe fallback)")
+        return True
+
 def save_best_models(models, scalers, results_df, feature_columns):
-    """Save best model for each horizon locally and to Model Registry"""
-    print("💾 Saving best models...")
+    """Save best model for each horizon with versioning and smart deployment"""
+    print("💾 Saving best models with versioning...")
     
     try:
+        import json
+        import shutil
+        
         # Create output directories
         Path(MODEL_OUTPUT_DIR).mkdir(exist_ok=True)
         
         best_models = {}
         saved_models = []
+        deployment_info = {}  # Track deployment decisions
+        
+        # Generate version timestamp
+        version_timestamp = datetime.now().strftime(MODEL_VERSION_FORMAT)
         
         # Find best model for each horizon (lowest MAE)
         for horizon in ['24h', '48h', '72h']:
@@ -416,25 +492,89 @@ def save_best_models(models, scalers, results_df, feature_columns):
                 'performance': best_result
             }
             
-            # Save locally
-            model_filename = f"{MODEL_OUTPUT_DIR}/aqi_predictor_{horizon}_{best_model_name}.pkl"
-            joblib.dump(models[horizon][best_model_name], model_filename)
+            # Create versioned filename
+            versioned_filename = f"{MODEL_OUTPUT_DIR}/aqi_predictor_{horizon}_{best_model_name}_{version_timestamp}.pkl"
             
-            # Save scaler if exists
+            # ALWAYS save versioned model (for history)
+            joblib.dump(models[horizon][best_model_name], versioned_filename)
+            print(f"✅ Saved versioned {horizon} model: {best_model_name} v{version_timestamp}")
+            
+            # Save scaler if exists (also versioned)
             if scalers[horizon].get(best_model_name) is not None:
-                scaler_filename = f"{MODEL_OUTPUT_DIR}/scaler_{horizon}_{best_model_name}.pkl"
-                joblib.dump(scalers[horizon][best_model_name], scaler_filename)
+                versioned_scaler_filename = f"{MODEL_OUTPUT_DIR}/scaler_{horizon}_{best_model_name}_{version_timestamp}.pkl"
+                joblib.dump(scalers[horizon][best_model_name], versioned_scaler_filename)
+                
+                # Also create _latest scaler
+                latest_scaler_filename = f"{MODEL_OUTPUT_DIR}/scaler_{horizon}_{best_model_name}_latest.pkl"
             
-            print(f"✅ Saved best {horizon} model: {best_model_name} (MAE: {best_result['mae']:.2f})")
+            # Check if should deploy based on RMSE improvement
+            should_deploy = should_deploy_model(horizon, best_model_name, best_result['rmse'])
+            
+            # Create _latest.pkl file (for API to load)
+            latest_filename = f"{MODEL_OUTPUT_DIR}/aqi_predictor_{horizon}_{best_model_name}_latest.pkl"
+            
+            if should_deploy:
+                # Deploy: Copy versioned model to _latest.pkl
+                shutil.copy(versioned_filename, latest_filename)
+                
+                if scalers[horizon].get(best_model_name) is not None:
+                    shutil.copy(versioned_scaler_filename, latest_scaler_filename)
+                
+                deployment_info[horizon] = {
+                    'deployed': True,
+                    'version': version_timestamp,
+                    'deployment_timestamp': datetime.now().isoformat(),
+                    'reason': 'RMSE improved',
+                    'metrics': {
+                        'rmse': float(best_result['rmse']),
+                        'mae': float(best_result['mae']),
+                        'r2': float(best_result['r2']),
+                        'mape': float(best_result['mape'])
+                    }
+                }
+                print(f"🚀 DEPLOYED {horizon} model to production")
+            else:
+                # Don't deploy: Keep existing _latest.pkl unchanged
+                deployment_info[horizon] = {
+                    'deployed': False,
+                    'version': version_timestamp,
+                    'deployment_timestamp': datetime.now().isoformat(),
+                    'reason': 'RMSE degraded',
+                    'metrics': {
+                        'rmse': float(best_result['rmse']),
+                        'mae': float(best_result['mae']),
+                        'r2': float(best_result['r2']),
+                        'mape': float(best_result['mape'])
+                    }
+                }
+                print(f"⚠️  {horizon} model NOT deployed - keeping previous version active")
             
             saved_models.append({
                 'horizon': horizon,
                 'model_name': best_model_name,
-                'filename': model_filename,
+                'versioned_filename': versioned_filename,
+                'latest_filename': latest_filename,
+                'deployed': should_deploy,
                 'performance': best_result
             })
         
-        # Save model metadata
+        # Save deployment metadata
+        deployment_metadata = {
+            'last_updated': datetime.now().isoformat(),
+            'deployment_info': deployment_info,
+            'training_config': {
+                'feature_columns': feature_columns,
+                'model_configs': MODEL_CONFIGS,
+                'split_ratio': TRAIN_TEST_SPLIT_RATIO
+            }
+        }
+        
+        with open(DEPLOYMENT_METADATA_FILE, 'w') as f:
+            json.dump(deployment_metadata, f, indent=2, default=str)
+        
+        print(f"✅ Deployment metadata saved to {DEPLOYMENT_METADATA_FILE}")
+        
+        # Also save model metadata (for compatibility)
         metadata = {
             'feature_columns': feature_columns,
             'model_configs': MODEL_CONFIGS,
@@ -443,7 +583,6 @@ def save_best_models(models, scalers, results_df, feature_columns):
         }
         
         metadata_filename = f"{MODEL_OUTPUT_DIR}/model_metadata.json"
-        import json
         with open(metadata_filename, 'w') as f:
             json.dump(metadata, f, indent=2, default=str)
         
@@ -453,6 +592,8 @@ def save_best_models(models, scalers, results_df, feature_columns):
         
     except Exception as e:
         print(f"❌ Error saving models: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def create_feature_importance_plots(models, feature_columns):
@@ -506,36 +647,42 @@ def create_feature_importance_plots(models, feature_columns):
         print(f"❌ Error creating feature importance plots: {e}")
 
 def save_evaluation_results(results_df):
-    """Save evaluation results to CSV"""
+    """Save evaluation results to SQLite database"""
     print("💾 Saving evaluation results...")
     
     try:
+        from performance_db import save_performance_result
+        
         Path(EVALUATION_OUTPUT_DIR).mkdir(exist_ok=True)
         
-        # Save detailed results
+        # Save detailed results to CSV for backwards compatibility
         results_filename = f"{EVALUATION_OUTPUT_DIR}/model_evaluation_results.csv"
         results_df.to_csv(results_filename, index=False)
         print(f"✅ Evaluation results saved: {results_filename}")
         
-        # Create performance tracking file
-        tracking_filename = "model_performance_history.csv"
+        # Save to SQLite database
+        for _, row in results_df.iterrows():
+            result = {
+                'timestamp': row['timestamp'],
+                'horizon': row['horizon'],
+                'model': row['model'],
+                'mae': float(row['mae']),
+                'rmse': float(row['rmse']),
+                'r2': float(row['r2']),
+                'mape': float(row['mape']),
+                'n_test_samples': int(row['n_test_samples']),
+                'deployed': 0  # Will be updated by deployment logic
+            }
+            save_performance_result(result)
         
-        # Load existing tracking if it exists
-        if os.path.exists(tracking_filename):
-            tracking_df = pd.read_csv(tracking_filename)
-        else:
-            tracking_df = pd.DataFrame()
-        
-        # Add new results
-        tracking_df = pd.concat([tracking_df, results_df], ignore_index=True)
-        tracking_df.to_csv(tracking_filename, index=False)
-        
-        print(f"✅ Performance tracking updated: {tracking_filename}")
+        print(f"✅ Performance tracking saved to SQLite database")
         
         return True
         
     except Exception as e:
         print(f"❌ Error saving evaluation results: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def main():

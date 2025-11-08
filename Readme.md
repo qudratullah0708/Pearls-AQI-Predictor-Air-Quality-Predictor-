@@ -145,6 +145,11 @@ python training_pipeline.py
 python scripts/test_feast.py
 ```
 
+### 7. Run Backend
+```bash
+uvicorn backend.api:app --reload
+```
+
 ## 🧠 **Learning Journey**
 
 ### **Phase 1: Data Engineering** ✅

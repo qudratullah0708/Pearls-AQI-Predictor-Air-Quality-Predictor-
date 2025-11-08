@@ -27,6 +27,12 @@ EVALUATION_OUTPUT_DIR = "outputs"
 PREDICTION_HORIZONS = [24, 48, 72]  # hours ahead
 TRAIN_TEST_SPLIT_RATIO = 0.7
 
+# Model Versioning & Deployment Configuration
+DEPLOYMENT_METADATA_FILE = "models/deployment_metadata.json"
+MODEL_VERSION_FORMAT = "%Y%m%d_%H%M%S"  # Timestamp format for versions
+KEEP_MODEL_VERSIONS = 10  # Number of historical versions to retain
+PERFORMANCE_HISTORY_FILE = "model_performance_history.csv"
+
 # Model Hyperparameters (conservative for small datasets)
 MODEL_CONFIGS = {
     "linear_regression": {},
